@@ -367,5 +367,36 @@ int main()
     std::cout << orderbook.Size() << std::endl; //1
     orderbook.CancelOrder(orderId);
     std::cout << orderbook.Size() << std::endl; //0
+
+    // Fill and kill example: buy 10 against a resting sell of 5
+    const OrderId sellId = 2;
+    const OrderId fillAndKillId = 3;
+    orderbook.AddOrder(std::make_shared<Order>(OrderType::GoodTillCancel, sellId, Side::Sell, 100, 5));
+    const auto trades = orderbook.AddOrder(std::make_shared<Order>(OrderType::FillAndKill, fillAndKillId, Side::Buy, 100, 10));
+    std::cout << trades.size() << std::endl; //1 (5 units filled)
+    std::cout << orderbook.Size() << std::endl; //0 (unfilled 5 units of the fill and kill were cancelled)
+
+    // Multithreading example: two threads place orders into the same orderbook.
+    // A mutex makes sure only one thread touches the orderbook at a time.
+    std::mutex bookMutex;
+    constexpr int ordersPerThread = 5;
+
+    auto placeOrders = [&orderbook, &bookMutex](OrderId firstId, Side side, Price startPrice)
+    {
+        for (int i = 0; i < ordersPerThread; ++i)
+        {
+            auto order = std::make_shared<Order>(OrderType::GoodTillCancel, firstId + i, side, startPrice + i, 10);
+            std::lock_guard<std::mutex> lock(bookMutex);
+            orderbook.AddOrder(order);
+        }
+    };
+
+    // Buyer places bids at 100-104, seller places asks at 110-114 (no crossing, so no trades)
+    std::thread buyer(placeOrders, 100, Side::Buy, 100);
+    std::thread seller(placeOrders, 200, Side::Sell, 110);
+    buyer.join();
+    seller.join();
+
+    std::cout << orderbook.Size() << std::endl; //10 (5 buys + 5 sells)
     return 0;
 }
